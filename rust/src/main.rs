@@ -9,7 +9,9 @@ use std::{convert::Infallible, net::SocketAddr};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server};
 
+use function_moudle::FunctionMoudle;
 use router::Router;
+use trigger::Trigger;
 
 type HttpError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -34,29 +36,68 @@ async fn main() {
             Ok::<_, HttpError>(service_fn(move |req| {
                 let router = router.clone();
 
-                async {
+                async move {
                     Ok::<_, HttpError>(match (req.method(), req.uri().path()) {
+                        // 查询faas
                         (&Method::GET, "/function/") => {
                             let mut body = String::from("<h1>Functions</h1>");
 
-                            todo!()
+                            router.select().into_iter().for_each(|v| {
+                                body += format!("<a href=\"{}\">{}</a><br>", v.1.path(), v.1.name())
+                                    .as_str()
+                            });
+
+                            Response::builder()
+                                .status(200)
+                                .header("Content-type", "text/html; charset=utf-8")
+                                .body(body.into())
+                                .unwrap()
                         }
+                        // 新建faas
                         (&Method::POST, "/function/") => {
                             let b = hyper::body::to_bytes(req.into_body()).await?;
 
-                            todo!()
+                            match FunctionMoudle::from_json(&b).map(|f| f.build()) {
+                                Some(Ok(f)) => {
+                                    router.insert(f.trigger(), f);
+                                    Response::new("Function Created".into())
+                                }
+                                Some(Err(e)) => {
+                                    eprintln!("{}", e);
+                                    Response::builder()
+                                        .status(422)
+                                        .body("Failed build process".into())
+                                        .unwrap()
+                                }
+                                None => Response::builder()
+                                    .status(422)
+                                    .body("JSON error".into())
+                                    .unwrap(),
+                            }
                         }
-
+                        // 删除faas
                         (&Method::DELETE, "/function/") => {
                             let b = hyper::body::to_bytes(req.into_body()).await?;
 
-                            todo!()
+                            match FunctionMoudle::from_json(&b) {
+                                Some(f) => f.delete(router),
+                                None => Response::builder()
+                                    .status(422)
+                                    .body("JSON error".into())
+                                    .unwrap(),
+                            }
                         }
-
+                        // 执行faas
                         (_, _) => {
                             let (parts, body) = req.into_parts();
 
-                            Response::builder().status(404).body(Body::empty()).unwrap()
+                            match router.get(&Trigger::new(parts.method.as_str(), parts.uri.path()))
+                            {
+                                Some(f) => f.run(parts, body).await,
+                                None => {
+                                    Response::builder().status(404).body(Body::empty()).unwrap()
+                                }
+                            }
                         }
                     })
                 }
