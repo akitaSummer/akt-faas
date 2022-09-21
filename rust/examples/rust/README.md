@@ -14,12 +14,11 @@ JSON=$(cat <<EOF
 {
     "name": "hello-rust",
     "language": "rust",
-    "source": "$(base64 -w 0 source.tar.gz)",
+    "source": "$(base64 -i 0 source.tar.gz)",
     "method": "GET",
     "path": "/hello-rust/",
     "cpu": "2",
-    "memory": "512m",
-    "uptime": "30"
+    "memory": "512m"
 }
 EOF
 )
